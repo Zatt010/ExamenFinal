@@ -1,0 +1,281 @@
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <ArduinoJson.h>
+#include <ESP32Servo.h>
+#include <EasyBuzzer.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+int pos = 0; 
+const char* PUBLISH_TOPIC= "$aws/things/proyecto_thing/shadow/update";
+const char* SUBSCRIBE_TOPIC="proyecto/check";
+const char* AWS_ENDPOINT = "a3ikbz1m4q24wb-ats.iot.us-east-1.amazonaws.com";
+const int AWS_ENDPOINT_PORT = 8883;
+const int oneWireBus = 21;
+const char* SENSOR;
+#define Float_Switch 19
+
+OneWire oneWire(oneWireBus);
+DallasTemperature sensors (&oneWire);
+const char* MQTT_CLIENT_ID = "test_ucb";
+char sndPayloadCM[512];
+
+
+const char AMAZON_ROOT_CA1[] PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIDQTCCAimgAwIBAgITBmyfz5m/jAo54vB4ikPmljZbyjANBgkqhkiG9w0BAQsF
+ADA5MQswCQYDVQQGEwJVUzEPMA0GA1UEChMGQW1hem9uMRkwFwYDVQQDExBBbWF6
+b24gUm9vdCBDQSAxMB4XDTE1MDUyNjAwMDAwMFoXDTM4MDExNzAwMDAwMFowOTEL
+MAkGA1UEBhMCVVMxDzANBgNVBAoTBkFtYXpvbjEZMBcGA1UEAxMQQW1hem9uIFJv
+b3QgQ0EgMTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALJ4gHHKeNXj
+ca9HgFB0fW7Y14h29Jlo91ghYPl0hAEvrAIthtOgQ3pOsqTQNroBvo3bSMgHFzZM
+9O6II8c+6zf1tRn4SWiw3te5djgdYZ6k/oI2peVKVuRF4fn9tBb6dNqcmzU5L/qw
+IFAGbHrQgLKm+a/sRxmPUDgH3KKHOVj4utWp+UhnMJbulHheb4mjUcAwhmahRWa6
+VOujw5H5SNz/0egwLX0tdHA114gk957EWW67c4cX8jJGKLhD+rcdqsq08p8kDi1L
+93FcXmn/6pUCyziKrlA4b9v7LWIbxcceVOF34GfID5yHI9Y/QCB/IIDEgEw+OyQm
+jgSubJrIqg0CAwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMC
+AYYwHQYDVR0OBBYEFIQYzIU07LwMlJQuCFmcx7IQTgoIMA0GCSqGSIb3DQEBCwUA
+A4IBAQCY8jdaQZChGsV2USggNiMOruYou6r4lK5IpDB/G/wkjUu0yKGX9rbxenDI
+U5PMCCjjmCXPI6T53iHTfIUJrU6adTrCC2qJeHZERxhlbI1Bjjt/msv0tadQ1wUs
+N+gDS63pYaACbvXy8MWy7Vu33PqUXHeeE6V/Uq2V8viTO96LXFvKWlJbYK8U90vv
+o/ufQJVtMVT8QtPHRh8jrdkPSHCa2XV4cdFyQzR1bldZwgJcJmApzyMZFo6IQ6XU
+5MsI+yMRQ+hDKXJioaldXgjUkK642M4UwtBV8ob2xJNDd2ZhwLnoQdeXeGADbkpy
+rqXRfboQnoZsG4q5WTP468SQvvG5
+-----END CERTIFICATE-----
+)EOF";
+
+const char CERTIFICATE[] PROGMEM = R"KEY(
+-----BEGIN CERTIFICATE-----
+MIIDWjCCAkKgAwIBAgIVAJ5J5nYoj2NufBnRU3OqjKaBXimmMA0GCSqGSIb3DQEB
+CwUAME0xSzBJBgNVBAsMQkFtYXpvbiBXZWIgU2VydmljZXMgTz1BbWF6b24uY29t
+IEluYy4gTD1TZWF0dGxlIFNUPVdhc2hpbmd0b24gQz1VUzAeFw0yMjEyMTEyMzMy
+MDVaFw00OTEyMzEyMzU5NTlaMB4xHDAaBgNVBAMME0FXUyBJb1QgQ2VydGlmaWNh
+dGUwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDHgIJWuIYe+P9coIPC
+w8YEgR7Ubo/jXGOF8xKfWvbF6TMCKdMzMz4NTX/5aTIrOSapjwpD+qkrQTP1Vzc9
+7T4vaBxxltnQ3VMXCZayE8QhLItCM5X/nvfhKSaZXe/8abQhRmooTiYZDmsz+f8l
+dM6HSoUta0/w0e8v2edMmojcnaKcHkqhUPRLf2TGLfLUwEkzdA50J0EKh19ivxl8
+rDM7NYHrtIIdxMOkny7JkLDmS53i2zOLE22riLnpCFDLMc4Wg2J1hs+pcsVDom/8
+0pR4w7GWXFOkpCBlpSplEVlQW/8pLYvjYRVRGXWRtd1hlM9NroDH3YCsroBTvyN+
+7+QrAgMBAAGjYDBeMB8GA1UdIwQYMBaAFPsconNZIhd0UJlxFgSuUn86pJlWMB0G
+A1UdDgQWBBRERGPl1q1jojtwXVL9SfbI6g5EEDAMBgNVHRMBAf8EAjAAMA4GA1Ud
+DwEB/wQEAwIHgDANBgkqhkiG9w0BAQsFAAOCAQEALlRZCJ8RAFMR0KFVvbg9X9xj
+O7KQqkYUMPnNvWzzIAEW+nzr4O0tG1fPkadM80/miEWG48M7l+X0gJl+gVP2IsiE
+dc968ADmNDHf0uBkxqKL+slMYhiza+8IX8M1rw8SD4R+BCUTFKa0BcqgL1TJL2Mx
+vEQ53ZgNUE7400JOUJp29NxKeqGtS+S0GhF82tcTIm/GG6bu25aAxeJWUDxsBlQX
+/LmYusS5hBBG8Nak1FhqNNVZj1yCYrWWD9sepju2pNHqsK2IgpbRmBKcZWkApaME
+9Jr7oISMxDkhMWOZl9EVAT4SC54a9t4qN+ARje86St7RnT6kY5H52Ch8HHOnkA==
+-----END CERTIFICATE-----
+)KEY";
+
+const char PRIVATE_KEY[] PROGMEM = R"KEY(
+-----BEGIN RSA PRIVATE KEY-----
+MIIEogIBAAKCAQEAx4CCVriGHvj/XKCDwsPGBIEe1G6P41xjhfMSn1r2xekzAinT
+MzM+DU1/+WkyKzkmqY8KQ/qpK0Ez9Vc3Pe0+L2gccZbZ0N1TFwmWshPEISyLQjOV
+/5734SkmmV3v/Gm0IUZqKE4mGQ5rM/n/JXTOh0qFLWtP8NHvL9nnTJqI3J2inB5K
+oVD0S39kxi3y1MBJM3QOdCdBCodfYr8ZfKwzOzWB67SCHcTDpJ8uyZCw5kud4tsz
+ixNtq4i56QhQyzHOFoNidYbPqXLFQ6Jv/NKUeMOxllxTpKQgZaUqZRFZUFv/KS2L
+42EVURl1kbXdYZTPTa6Ax92ArK6AU78jfu/kKwIDAQABAoIBAAHbXls0SHtNUgMo
+s1FCxTsRgJn1lX1GRN7gTlIRZK6e5wykGwUk+vTgvcoygncIhyWY4T2UvbJbXwJv
+l2IKLUP/shQUlV5uUPGr8y0hJfgxE/K/zCue7Su5WFShHTS6PyT4JNDPOWeOTM0l
+DIzqs2lq9iZgE1Rof9NwMcjyv0deZANsUAF27PzI+UkA6T6+Cl6Lmq+Mwjdv5ZAY
+HU/sXMNeMtMnqQuYCNgDgblKMHEmBR00/giGK1p2wY2+ESGQzGZurimyShCwLjUM
+mJGzWlYJBwG2xoMSz4FfJi5wzdm+S9Caigp4bpG52RP9b32M+o1sOi7zK6gys9rF
++tsMwTECgYEA/I/7R0YlS6fFfC3GqR1iuvQBgqyUedhQMpZ9MApBEmQjQvJ5hj0Z
+jOyf7lueigB0hUsMZi8jWnotWY3EMVr6yFYBWVjeGIbov1h4EDVxrXzz7BzovCUz
+CDs5/DcOdIlaON6VrkH1lgpG41b4py5wyXPp2BNdmzLK34ieKg/60F8CgYEAyjel
+WebzO6Vr0fFKpVmooU6RFcl8Nr8thcWtmNqiPKbTNtn4l3gjDmjznGxNwMaXMhkF
+rarASKUj+OhvZu/TJ6YI65On+d9J229x4OnTCadOEzjp2DDT5OOjmqCWfvyp1C6/
+C17pzUT4ARdFZ06kZjTt88CFhGCO1Q2Bp5W7D7UCgYARYV8rcnpSkIMYnpXTQYBv
+2SbZdULqd6ZdNNn8mlgMCfQbQVB3mnDNr+L5pjhsysc5/QYnagsGyO2iAg2ET/x+
+GN0S5vixu2b88/ufMe5WwAiRMRQbDnxKjrjY0HkgL+uTik3GpideYeqq7mtCJgIA
++wcWpY6FhaNMarxnrJ3YBQKBgD1tUelRYqnHwkzwA0DfT35Qo3n+zqDCyk1Mk0NP
+huDtvFN5Oy6n695Au1/U9nmM2fj56OOsbuSiZZ8C3HRkfbwZj7QgEnKxBXqHDAzK
+erUAAZONQlvN2VA6ZkRea9j/X4d4+8e0eUlFniCWtRqApSf3BCF7ZhOkUT8e7ze9
+ICnRAoGAEDM+VJl7jkFYAR8FLHBQFBFG4eLXlUELcEz9f+XE1fLeKq57jAPcoYRY
+zlTjLPEQSdRcJ18+fWlnUhd8UfSezGzx7txm0GPDyv/sA2UbceU+SADi9xsgA+2q
+x1hU9HjMA6QCsoTxS2Jkhv4lHcAo4S5w1vC87/WQJni8urKtteg=
+-----END RSA PRIVATE KEY-----
+)KEY";
+
+WiFiClientSecure wifiClient;
+PubSubClient mqttClient(wifiClient);
+
+
+void fill(){
+  digitalWrite(22, HIGH);
+}
+
+void fillStop(){
+  digitalWrite(22, LOW);
+}
+
+void buzzer(){
+  EasyBuzzer.singleBeep(5,1000);
+  delay(2000);
+}
+
+
+
+
+StaticJsonDocument<JSON_OBJECT_SIZE(1)> inputDoc;
+
+// PubSubClient callback function
+void callback(const char* topic, byte* payload, unsigned int length) {
+  String message;
+  for (int i = 0; i < length; i++) {
+    message += String((char) payload[i]);
+  }
+  if (String(topic) == SUBSCRIBE_TOPIC) {
+    Serial.println("Message from topic " + String(topic) + " : " + message);
+
+    DeserializationError err = deserializeJson(inputDoc, payload);
+    if (!err) {
+        String action = String(inputDoc["action"].as<char*>());
+        if(action == "vacio"){
+            fill();      
+        }
+        else if (action == "lleno"){
+          fillStop();
+        }
+        else if (action =="caliente"){
+          buzzer();
+          EasyBuzzer.stopBeep();
+        }
+        else if (action =="frio"){
+          buzzer();
+          EasyBuzzer.stopBeep();
+        }
+     
+        else Serial.println("Unsupported action received: " + action);
+    }
+  }
+}
+
+boolean mqttClientConnect() {
+    Serial.println("Connecting to " + String(AWS_ENDPOINT));
+    if (mqttClient.connect(MQTT_CLIENT_ID)) {
+        Serial.println("Connected to " + String(AWS_ENDPOINT));
+
+        mqttClient.subscribe(SUBSCRIBE_TOPIC);
+        Serial.println("Subscribed to " + String(SUBSCRIBE_TOPIC));
+    } else {
+        Serial.println("Can't connect to " + String(AWS_ENDPOINT));
+    }
+    return mqttClient.connected();
+}
+
+void setup()
+{ 
+    EasyBuzzer.setPin(18);
+    sensors.begin();
+    pinMode(22, OUTPUT);
+    pinMode(Float_Switch, INPUT_PULLUP);
+    Serial.begin(115200);
+     WiFi.mode(WIFI_AP_STA);
+  WiFi.beginSmartConfig();
+
+  //Wait for SmartConfig packet from mobile
+  Serial.println("Waiting for SmartConfig.");
+  while (!WiFi.smartConfigDone()) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("SmartConfig received.");
+
+  //Wait for WiFi to connect to AP
+  Serial.println("Waiting for WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("WiFi Connected.");
+
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+
+    wifiClient.setCACert(AMAZON_ROOT_CA1);
+    wifiClient.setCertificate(CERTIFICATE);
+    wifiClient.setPrivateKey(PRIVATE_KEY);
+
+    mqttClient.setServer(AWS_ENDPOINT, AWS_ENDPOINT_PORT);
+    mqttClient.setCallback(callback);
+
+}
+
+unsigned long previousConnectMillis = 0;
+unsigned long previousPublishMillis = 0;
+
+const char* counter = 0;
+
+StaticJsonDocument<JSON_OBJECT_SIZE(1)> outputDoc;
+//StaticJsonDocument<256> outputDoc;
+//char outputBuffer[512];
+
+void publishMessageWlevel(unsigned char value) {
+   
+    sprintf(sndPayloadCM,"{\"state\": {\"reported\": {\"level\": \"%d\"}}}",value);
+    mqttClient.publish(PUBLISH_TOPIC, sndPayloadCM);
+  
+}
+
+void publishMessageTemp(unsigned char value) {
+   
+    sprintf(sndPayloadCM,"{\"state\": {\"reported\": {\"temperature\": \"%d\"}}}",value);
+    mqttClient.publish(PUBLISH_TOPIC, sndPayloadCM);
+    
+}
+void publishMessageFloater(unsigned char value) {
+   
+    sprintf(sndPayloadCM,"{\"state\": {\"reported\": {\"value\": \"%d\"}}}",value);
+    mqttClient.publish(PUBLISH_TOPIC, sndPayloadCM);
+    
+}
+float temperatureC = 0;
+unsigned char c;
+unsigned char w;
+
+void loop() {
+    unsigned long now = millis();
+    sensors.requestTemperatures();
+    
+    EasyBuzzer.update();
+    if (!mqttClient.connected()) {
+        if (now - previousConnectMillis >= 2000) {
+            previousConnectMillis = now;
+            if (mqttClientConnect()) previousConnectMillis = 0;
+            else delay(1000);
+        }
+    } else { // mqtt is connected
+        mqttClient.loop();
+        delay(20);
+        if (now - previousPublishMillis >= 5000) {
+        previousPublishMillis = now;
+        temperatureC = sensors.getTempCByIndex(0);
+        c = static_cast<unsigned char>(temperatureC);
+        int water=analogRead(34);
+        w = static_cast<unsigned char>(water);
+        Serial.println(w);
+        if(digitalRead(22)!=HIGH)
+        {
+           publishMessageTemp(c);
+        }
+        publishMessageWlevel(w);
+        
+         if(digitalRead(Float_Switch)!=HIGH)
+            {
+               publishMessageFloater(0);
+               Serial.println(0);
+            }
+          else
+          {
+               publishMessageFloater(1);
+               Serial.println(1);
+          }
+    }
+  }
+}
